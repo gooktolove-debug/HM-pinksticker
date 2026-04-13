@@ -808,7 +808,9 @@
         }
 
         const stickerPhotos = selectedPhotos.filter((p) => p.photo_type === 'sticker');
-        const vesselPhotos = selectedPhotos.filter((p) => p.photo_type === 'vessel');
+        const vesselPhotos = selectedPhotos.filter(
+  (p) => p.photo_type === 'vessel' || p.photo_type === 'legacy'
+);
 
         return (
           <div className="space-y-4">
