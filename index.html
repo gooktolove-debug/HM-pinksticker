@@ -336,8 +336,8 @@
       const [selectedPhotos, setSelectedPhotos] = useState([]);
       const [selectedNotes, setSelectedNotes] = useState([]);
       const [noteInput, setNoteInput] = useState('');
-      const [noteAuthor, setNoteAuthor] = useState(localStorage.getItem(STORAGE_KEY_RESOLVED_BY) || '');
-      const [resolvedBy, setResolvedBy] = useState(localStorage.getItem(STORAGE_KEY_RESOLVED_BY) || '');
+      const [noteAuthor, setNoteAuthor] = useState('');
+      const [resolvedBy, setResolvedBy] = useState('');
       const mapRef = useRef(null);
       const mapInstanceRef = useRef(null);
       const mapMarkerRef = useRef(null);
@@ -520,7 +520,7 @@
         }
 
         try {
-          localStorage.setItem(STORAGE_KEY_RESOLVED_BY, noteAuthor.trim());
+          
           await addNote(selectedSticker.id, noteInput, noteAuthor);
           setNoteInput('');
           await handleRefreshDetails(selectedSticker.id, selectedSticker.sticker_no);
@@ -540,7 +540,7 @@
         }
 
         try {
-          localStorage.setItem(STORAGE_KEY_RESOLVED_BY, resolvedBy.trim());
+          
           await markResolved(selectedSticker.id, resolvedBy);
           await handleRefreshDetails(selectedSticker.id, selectedSticker.sticker_no);
           setSuccessMessage('Sticker marked as resolved.');
