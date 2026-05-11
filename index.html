@@ -741,19 +741,35 @@
               <div className="text-base font-semibold text-gray-900">{title}</div>
               <div className="text-sm text-gray-500">{description}</div>
             </div>
-            <label className="block rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50 hover:bg-blue-100 transition p-4 cursor-pointer text-center">
-              <div className="flex flex-col items-center gap-2 text-blue-700">
-                <Icons.Camera className="w-6 h-6" />
-                <div className="font-semibold">Tap to take or upload photo</div>
-                <div className="text-xs text-blue-600">Images only</div>
-              </div>
-              <input
-                className="camera-input hidden"
-                type="file"
-                accept="image/*"
-                onChange={onChange}
-              />
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50 hover:bg-blue-100 transition p-4 cursor-pointer text-center">
+                <div className="flex flex-col items-center gap-2 text-blue-700">
+                  <Icons.Camera className="w-6 h-6" />
+                  <div className="font-semibold">Take photo</div>
+                  <div className="text-xs text-blue-600">Camera - default</div>
+                </div>
+                <input
+                  className="camera-input hidden"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={onChange}
+                />
+              </label>
+              <label className="block rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 hover:bg-gray-100 transition p-4 cursor-pointer text-center">
+                <div className="flex flex-col items-center gap-2 text-gray-700">
+                  <Icons.Camera className="w-6 h-6" />
+                  <div className="font-semibold">Upload from album</div>
+                  <div className="text-xs text-gray-500">Images only</div>
+                </div>
+                <input
+                  className="camera-input hidden"
+                  type="file"
+                  accept="image/*"
+                  onChange={onChange}
+                />
+              </label>
+            </div>
             {items?.length > 0 && (
               <div className="flex gap-3 overflow-x-auto thumb-scroll pb-1">
                 {items.map((item, idx) => (
@@ -877,14 +893,14 @@
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-3">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <div className="text-base font-semibold">Current Location</div>
                   <div className="text-sm text-gray-500">
                     {form.location ? 'Location captured successfully.' : isFetchingLocation ? 'Fetching current location...' : 'Location not available yet.'}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <button type="button" onClick={startLocationEdit} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-semibold">Edit</button>
                   <button type="button" onClick={handleFetchLocation} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-semibold"><Icons.Refresh className="w-4 h-4" /> Retry</button>
                 </div>
@@ -897,7 +913,7 @@
                 </div>
               )}
               {isEditingLocation && (
-                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-3 space-y-3">
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-3 space-y-3 overflow-hidden">
                   <div className="flex flex-wrap gap-2 text-sm font-semibold">
                     <button type="button" onClick={() => updateLocationEditorField('mode', 'dm')} className={`px-3 py-2 rounded-xl ${locationEditor.mode === 'dm' ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-100'}`}>Degree - minute.decimal</button>
                     <button type="button" onClick={() => updateLocationEditorField('mode', 'decimal')} className={`px-3 py-2 rounded-xl ${locationEditor.mode === 'decimal' ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-100'}`}>Degree.decimal</button>
@@ -906,30 +922,30 @@
                     <div className="space-y-3">
                       <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-1">Latitude</label>
-                        <div className="grid grid-cols-[1fr_1fr_80px] gap-2">
-                          <input type="number" value={locationEditor.latDeg} onChange={(e) => updateLocationEditorField('latDeg', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-3" placeholder="Deg" />
-                          <input type="number" step="0.0001" value={locationEditor.latMin} onChange={(e) => updateLocationEditorField('latMin', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-3" placeholder="Min" />
-                          <select value={locationEditor.latDir} onChange={(e) => updateLocationEditorField('latDir', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-2 bg-white"><option>N</option><option>S</option></select>
+                        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_72px] gap-2">
+                          <input type="number" value={locationEditor.latDeg} onChange={(e) => updateLocationEditorField('latDeg', e.target.value)} className="w-full min-w-0 h-10 rounded-xl border border-gray-300 px-3" placeholder="Deg" />
+                          <input type="number" step="0.0001" value={locationEditor.latMin} onChange={(e) => updateLocationEditorField('latMin', e.target.value)} className="w-full min-w-0 h-10 rounded-xl border border-gray-300 px-3" placeholder="Min" />
+                          <select value={locationEditor.latDir} onChange={(e) => updateLocationEditorField('latDir', e.target.value)} className="w-full min-w-0 h-10 rounded-xl border border-gray-300 px-2 bg-white"><option>N</option><option>S</option></select>
                         </div>
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-1">Longitude</label>
-                        <div className="grid grid-cols-[1fr_1fr_80px] gap-2">
-                          <input type="number" value={locationEditor.lngDeg} onChange={(e) => updateLocationEditorField('lngDeg', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-3" placeholder="Deg" />
-                          <input type="number" step="0.0001" value={locationEditor.lngMin} onChange={(e) => updateLocationEditorField('lngMin', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-3" placeholder="Min" />
-                          <select value={locationEditor.lngDir} onChange={(e) => updateLocationEditorField('lngDir', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-2 bg-white"><option>E</option><option>W</option></select>
+                        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_72px] gap-2">
+                          <input type="number" value={locationEditor.lngDeg} onChange={(e) => updateLocationEditorField('lngDeg', e.target.value)} className="w-full min-w-0 h-10 rounded-xl border border-gray-300 px-3" placeholder="Deg" />
+                          <input type="number" step="0.0001" value={locationEditor.lngMin} onChange={(e) => updateLocationEditorField('lngMin', e.target.value)} className="w-full min-w-0 h-10 rounded-xl border border-gray-300 px-3" placeholder="Min" />
+                          <select value={locationEditor.lngDir} onChange={(e) => updateLocationEditorField('lngDir', e.target.value)} className="w-full min-w-0 h-10 rounded-xl border border-gray-300 px-2 bg-white"><option>E</option><option>W</option></select>
                         </div>
                       </div>
                     </div>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Latitude</label><input type="number" step="0.000001" value={locationEditor.latDecimal} onChange={(e) => updateLocationEditorField('latDecimal', e.target.value)} className="w-full h-10 rounded-xl border border-gray-300 px-3" placeholder="-36.847014" /></div>
-                      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Longitude</label><input type="number" step="0.000001" value={locationEditor.lngDecimal} onChange={(e) => updateLocationEditorField('lngDecimal', e.target.value)} className="w-full h-10 rounded-xl border border-gray-300 px-3" placeholder="174.788619" /></div>
+                      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Latitude</label><input type="number" step="0.000001" value={locationEditor.latDecimal} onChange={(e) => updateLocationEditorField('latDecimal', e.target.value)} className="w-full min-w-0 h-10 rounded-xl border border-gray-300 px-3" placeholder="-36.847014" /></div>
+                      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Longitude</label><input type="number" step="0.000001" value={locationEditor.lngDecimal} onChange={(e) => updateLocationEditorField('lngDecimal', e.target.value)} className="w-full min-w-0 h-10 rounded-xl border border-gray-300 px-3" placeholder="174.788619" /></div>
                     </div>
                   )}
-                  <div className="flex gap-2">
-                    <button type="button" onClick={saveEditedLocation} className="flex-1 h-10 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">Save location</button>
-                    <button type="button" onClick={cancelLocationEdit} className="flex-1 h-10 rounded-xl bg-white border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50">Cancel</button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button type="button" onClick={saveEditedLocation} className="w-full h-10 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">Save location</button>
+                    <button type="button" onClick={cancelLocationEdit} className="w-full h-10 rounded-xl bg-white border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50">Cancel</button>
                   </div>
                 </div>
               )}
