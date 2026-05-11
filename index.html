@@ -177,6 +177,66 @@
       });
     }
 
+
+      function decimalToDegreeMinute(value, axis) {
+        if (value == null || Number.isNaN(Number(value))) return '-';
+        const numeric = Number(value);
+        const direction = axis === 'lat'
+          ? (numeric >= 0 ? 'N' : 'S')
+          : (numeric >= 0 ? 'E' : 'W');
+        const absolute = Math.abs(numeric);
+        const degrees = Math.floor(absolute);
+        const minutes = (absolute - degrees) * 60;
+        return `${degrees}° ${minutes.toFixed(4)}' ${direction}`;
+      }
+
+      function parseDecimalCoordinate(value, axis) {
+        const input = String(value ?? '').trim().toUpperCase();
+        if (!input) return null;
+        const directionMatch = input.match(/[NSEW]$/);
+        const direction = directionMatch ? directionMatch[0] : '';
+        const numeric = Number(input.replace(/[NSEW]/g, '').trim());
+        if (!Number.isFinite(numeric)) return null;
+        let result = numeric;
+        if (direction === 'S' || direction === 'W') result = -Math.abs(result);
+        if (direction === 'N' || direction === 'E') result = Math.abs(result);
+        const limit = axis === 'lat' ? 90 : 180;
+        return Math.abs(result) <= limit ? result : null;
+      }
+
+      function parseDegreeMinuteCoordinate(degreesValue, minutesValue, directionValue, axis) {
+        const degrees = Number(String(degreesValue ?? '').trim());
+        const minutes = Number(String(minutesValue ?? '').trim());
+        const direction = String(directionValue ?? '').trim().toUpperCase();
+        if (!Number.isFinite(degrees) || !Number.isFinite(minutes) || !direction) return null;
+        if (minutes < 0 || minutes >= 60) return null;
+        const limit = axis === 'lat' ? 90 : 180;
+        if (Math.abs(degrees) > limit) return null;
+        let result = Math.abs(degrees) + (minutes / 60);
+        if (direction === 'S' || direction === 'W') result = -result;
+        return Math.abs(result) <= limit ? result : null;
+      }
+
+      function buildLocationEditorState(location) {
+        const lat = location?.latitude ?? '';
+        const lng = location?.longitude ?? '';
+        const latAbs = lat === '' ? '' : Math.abs(Number(lat));
+        const lngAbs = lng === '' ? '' : Math.abs(Number(lng));
+        const latDeg = lat === '' ? '' : Math.floor(latAbs);
+        const lngDeg = lng === '' ? '' : Math.floor(lngAbs);
+        return {
+          mode: 'dm',
+          latDecimal: lat === '' ? '' : Number(lat).toFixed(6),
+          lngDecimal: lng === '' ? '' : Number(lng).toFixed(6),
+          latDeg: lat === '' ? '' : String(latDeg),
+          latMin: lat === '' ? '' : ((latAbs - latDeg) * 60).toFixed(4),
+          latDir: lat === '' ? 'S' : (Number(lat) >= 0 ? 'N' : 'S'),
+          lngDeg: lng === '' ? '' : String(lngDeg),
+          lngMin: lng === '' ? '' : ((lngAbs - lngDeg) * 60).toFixed(4),
+          lngDir: lng === '' ? 'E' : (Number(lng) >= 0 ? 'E' : 'W'),
+        };
+      }
+
     function validatePinkStickerForm(form) {
       if (!form.stickerNo?.trim()) return 'Sticker No. is required.';
       if (!form.vesselName?.trim()) return 'Vessel name is required.';
@@ -340,6 +400,8 @@
       const [form, setForm] = useState(blankForm);
       const [isSaving, setIsSaving] = useState(false);
       const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+      const [isEditingLocation, setIsEditingLocation] = useState(false);
+      const [locationEditor, setLocationEditor] = useState(buildLocationEditorState(null));
       const [isSearching, setIsSearching] = useState(false);
       const [errorMessage, setErrorMessage] = useState('');
       const [successMessage, setSuccessMessage] = useState('');
@@ -412,6 +474,8 @@
         try {
           const location = await getCurrentLocation();
           setForm((prev) => ({ ...prev, location }));
+          setLocationEditor(buildLocationEditorState(location));
+          setIsEditingLocation(false);
         } catch (err) {
           console.error(err);
           setErrorMessage('Unable to get current location. Please try again.');
@@ -422,6 +486,43 @@
 
       function updateFormField(field, value) {
         setForm((prev) => ({ ...prev, [field]: value }));
+      }
+
+
+      function startLocationEdit() {
+        resetMessages();
+        setLocationEditor(buildLocationEditorState(form.location));
+        setIsEditingLocation(true);
+      }
+
+      function cancelLocationEdit() {
+        setLocationEditor(buildLocationEditorState(form.location));
+        setIsEditingLocation(false);
+      }
+
+      function updateLocationEditorField(field, value) {
+        setLocationEditor((prev) => ({ ...prev, [field]: value }));
+      }
+
+      function saveEditedLocation() {
+        resetMessages();
+        let latitude = null;
+        let longitude = null;
+        if (locationEditor.mode === 'decimal') {
+          latitude = parseDecimalCoordinate(locationEditor.latDecimal, 'lat');
+          longitude = parseDecimalCoordinate(locationEditor.lngDecimal, 'lng');
+        } else {
+          latitude = parseDegreeMinuteCoordinate(locationEditor.latDeg, locationEditor.latMin, locationEditor.latDir, 'lat');
+          longitude = parseDegreeMinuteCoordinate(locationEditor.lngDeg, locationEditor.lngMin, locationEditor.lngDir, 'lng');
+        }
+        if (latitude == null || longitude == null) {
+          setErrorMessage('Please enter a valid latitude and longitude.');
+          return;
+        }
+        const location = { latitude, longitude, accuracy: form.location?.accuracy ?? 0 };
+        setForm((prev) => ({ ...prev, location }));
+        setLocationEditor(buildLocationEditorState(location));
+        setIsEditingLocation(false);
       }
 
       function handleSelectStickerPhotos(e) {
@@ -650,7 +751,6 @@
                 className="camera-input hidden"
                 type="file"
                 accept="image/*"
-                capture="environment"
                 onChange={onChange}
               />
             </label>
@@ -784,19 +884,53 @@
                     {form.location ? 'Location captured successfully.' : isFetchingLocation ? 'Fetching current location...' : 'Location not available yet.'}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleFetchLocation}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-semibold"
-                >
-                  <Icons.Refresh className="w-4 h-4" /> Retry
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button type="button" onClick={startLocationEdit} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-semibold">Edit</button>
+                  <button type="button" onClick={handleFetchLocation} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-semibold"><Icons.Refresh className="w-4 h-4" /> Retry</button>
+                </div>
               </div>
               {form.location && (
                 <div className="grid gap-2 text-sm text-gray-700">
-                  <div>Lat: {form.location.latitude.toFixed(6)}</div>
-                  <div>Lng: {form.location.longitude.toFixed(6)}</div>
+                  <div>Lat: {decimalToDegreeMinute(form.location.latitude, 'lat')}</div>
+                  <div>Lng: {decimalToDegreeMinute(form.location.longitude, 'lng')}</div>
                   <div>Accuracy: {Math.round(form.location.accuracy || 0)}m</div>
+                </div>
+              )}
+              {isEditingLocation && (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-3 space-y-3">
+                  <div className="flex flex-wrap gap-2 text-sm font-semibold">
+                    <button type="button" onClick={() => updateLocationEditorField('mode', 'dm')} className={`px-3 py-2 rounded-xl ${locationEditor.mode === 'dm' ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-100'}`}>Degree - minute.decimal</button>
+                    <button type="button" onClick={() => updateLocationEditorField('mode', 'decimal')} className={`px-3 py-2 rounded-xl ${locationEditor.mode === 'decimal' ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-100'}`}>Degree.decimal</button>
+                  </div>
+                  {locationEditor.mode === 'dm' ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Latitude</label>
+                        <div className="grid grid-cols-[1fr_1fr_80px] gap-2">
+                          <input type="number" value={locationEditor.latDeg} onChange={(e) => updateLocationEditorField('latDeg', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-3" placeholder="Deg" />
+                          <input type="number" step="0.0001" value={locationEditor.latMin} onChange={(e) => updateLocationEditorField('latMin', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-3" placeholder="Min" />
+                          <select value={locationEditor.latDir} onChange={(e) => updateLocationEditorField('latDir', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-2 bg-white"><option>N</option><option>S</option></select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Longitude</label>
+                        <div className="grid grid-cols-[1fr_1fr_80px] gap-2">
+                          <input type="number" value={locationEditor.lngDeg} onChange={(e) => updateLocationEditorField('lngDeg', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-3" placeholder="Deg" />
+                          <input type="number" step="0.0001" value={locationEditor.lngMin} onChange={(e) => updateLocationEditorField('lngMin', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-3" placeholder="Min" />
+                          <select value={locationEditor.lngDir} onChange={(e) => updateLocationEditorField('lngDir', e.target.value)} className="h-10 rounded-xl border border-gray-300 px-2 bg-white"><option>E</option><option>W</option></select>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Latitude</label><input type="number" step="0.000001" value={locationEditor.latDecimal} onChange={(e) => updateLocationEditorField('latDecimal', e.target.value)} className="w-full h-10 rounded-xl border border-gray-300 px-3" placeholder="-36.847014" /></div>
+                      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Longitude</label><input type="number" step="0.000001" value={locationEditor.lngDecimal} onChange={(e) => updateLocationEditorField('lngDecimal', e.target.value)} className="w-full h-10 rounded-xl border border-gray-300 px-3" placeholder="174.788619" /></div>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={saveEditedLocation} className="flex-1 h-10 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700">Save location</button>
+                    <button type="button" onClick={cancelLocationEdit} className="flex-1 h-10 rounded-xl bg-white border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50">Cancel</button>
+                  </div>
                 </div>
               )}
             </div>
@@ -967,7 +1101,7 @@
                   <div className="text-gray-500">Coordinates</div>
                   <div className="font-semibold text-gray-900">
                     {selectedSticker.latitude != null && selectedSticker.longitude != null
-                      ? `${Number(selectedSticker.latitude).toFixed(6)}, ${Number(selectedSticker.longitude).toFixed(6)}`
+                      ? `${decimalToDegreeMinute(selectedSticker.latitude, 'lat')}, ${decimalToDegreeMinute(selectedSticker.longitude, 'lng')}`
                       : '-'}
                   </div>
                 </div>
@@ -1091,7 +1225,7 @@
         if (screen === 'search') return renderSearch();
         if (screen === 'detail') return renderDetail();
         return renderHome();
-      }, [screen, form, isSaving, isFetchingLocation, searchType, searchStickerNo, searchResults, isSearching, selectedSticker, selectedPhotos, selectedNotes, noteInput, noteAuthor, resolvedBy]);
+      }, [screen, form, isSaving, isFetchingLocation, searchType, searchStickerNo, searchResults, isSearching, selectedSticker, selectedPhotos, selectedNotes, noteInput, noteAuthor, resolvedBy, isEditingLocation, locationEditor]);
 
       return (
         <div className="min-h-screen bg-gray-50">
