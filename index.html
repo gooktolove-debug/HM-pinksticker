@@ -364,6 +364,15 @@
       return data || [];
     }
 
+    async function fetchAllStickers() {
+      const { data, error } = await sb
+        .from('pink_stickers')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    }
+
     async function fetchStickerDetails(stickerId) {
       const [{ data: photos, error: photoError }, { data: notes, error: noteError }] = await Promise.all([
         sb.from('pink_sticker_photos').select('*').eq('pink_sticker_id', stickerId).order('created_at', { ascending: true }),
@@ -408,6 +417,8 @@
       const [searchType, setSearchType] = useState('sticker');
       const [searchStickerNo, setSearchStickerNo] = useState('');
       const [searchResults, setSearchResults] = useState([]);
+      const [allStickers, setAllStickers] = useState([]);
+      const [isLoadingAllStickers, setIsLoadingAllStickers] = useState(false);
       const [selectedSticker, setSelectedSticker] = useState(null);
       const [selectedPhotos, setSelectedPhotos] = useState([]);
       const [selectedNotes, setSelectedNotes] = useState([]);
@@ -421,6 +432,12 @@
       useEffect(() => {
         if (screen === 'new' && !form.location && !isFetchingLocation) {
           handleFetchLocation();
+        }
+      }, [screen]);
+
+      useEffect(() => {
+        if (screen === 'search') {
+          loadAllStickers();
         }
       }, [screen]);
 
@@ -466,6 +483,19 @@
       function resetMessages() {
         setErrorMessage('');
         setSuccessMessage('');
+      }
+
+      async function loadAllStickers() {
+        setIsLoadingAllStickers(true);
+        try {
+          const rows = await fetchAllStickers();
+          setAllStickers(rows);
+        } catch (err) {
+          console.error(err);
+          setErrorMessage(err?.message || 'Failed to load pink sticker list.');
+        } finally {
+          setIsLoadingAllStickers(false);
+        }
       }
 
       async function handleFetchLocation() {
@@ -524,15 +554,28 @@
         setLocationEditor(buildLocationEditorState(location));
         setIsEditingLocation(false);
       }
-
       function handleSelectStickerPhotos(e) {
         const nextFiles = normalizeFiles(e.target.files);
-        setForm((prev) => ({ ...prev, stickerPhotos: nextFiles }));
+        setForm((prev) => ({ ...prev, stickerPhotos: [...(prev.stickerPhotos || []), ...nextFiles] }));
+        e.target.value = '';
       }
 
       function handleSelectVesselPhotos(e) {
         const nextFiles = normalizeFiles(e.target.files);
-        setForm((prev) => ({ ...prev, vesselPhotos: nextFiles }));
+        setForm((prev) => ({ ...prev, vesselPhotos: [...(prev.vesselPhotos || []), ...nextFiles] }));
+        e.target.value = '';
+      }
+
+      function handleRemovePhoto(photoGroup, indexToRemove) {
+        setForm((prev) => {
+          const currentItems = prev[photoGroup] || [];
+          const itemToRemove = currentItems[indexToRemove];
+          if (itemToRemove?.previewUrl) URL.revokeObjectURL(itemToRemove.previewUrl);
+          return {
+            ...prev,
+            [photoGroup]: currentItems.filter((_, idx) => idx !== indexToRemove),
+          };
+        });
       }
 
       async function handleSubmit() {
@@ -717,24 +760,38 @@
                 <div className="text-lg font-bold text-gray-900">Pink Sticker Registry</div>
                 <div className="text-xs text-gray-500"></div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  resetMessages();
-                  setSearchStickerNo('');
-                  setSearchResults([]);
-                  setScreen('home');
-                }}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-semibold"
-              >
-                <Icons.Home className="w-4 h-4" /> Home
-              </button>
+              <div className="flex items-center gap-2">
+                {screen === 'detail' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetMessages();
+                      setScreen('search');
+                    }}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-semibold"
+                  >
+                    ← Back
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetMessages();
+                    setSearchStickerNo('');
+                    setSearchResults([]);
+                    setScreen('home');
+                  }}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-semibold"
+                >
+                  <Icons.Home className="w-4 h-4" /> Home
+                </button>
+              </div>
             </div>
           </header>
         );
       }
 
-      function PhotoPickerCard({ title, description, items, onChange }) {
+      function PhotoPickerCard({ title, description, items, onChange, photoGroup }) {
         return (
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-3">
             <div>
@@ -746,13 +803,14 @@
                 <div className="flex flex-col items-center gap-2 text-blue-700">
                   <Icons.Camera className="w-6 h-6" />
                   <div className="font-semibold">Take photo</div>
-                  <div className="text-xs text-blue-600">Camera - default</div>
+                  <div className="text-xs text-blue-600">Camera - multiple allowed</div>
                 </div>
                 <input
                   className="camera-input hidden"
                   type="file"
                   accept="image/*"
                   capture="environment"
+                  multiple
                   onChange={onChange}
                 />
               </label>
@@ -760,12 +818,13 @@
                 <div className="flex flex-col items-center gap-2 text-gray-700">
                   <Icons.Camera className="w-6 h-6" />
                   <div className="font-semibold">Upload from album</div>
-                  <div className="text-xs text-gray-500">Images only</div>
+                  <div className="text-xs text-gray-500">Images only - multiple allowed</div>
                 </div>
                 <input
                   className="camera-input hidden"
                   type="file"
                   accept="image/*"
+                  multiple
                   onChange={onChange}
                 />
               </label>
@@ -773,12 +832,24 @@
             {items?.length > 0 && (
               <div className="flex gap-3 overflow-x-auto thumb-scroll pb-1">
                 {items.map((item, idx) => (
-                  <img
-                    key={idx}
-                    src={item.previewUrl}
-                    alt={`${title} ${idx + 1}`}
-                    className="h-24 w-24 rounded-xl object-cover border border-gray-200 shrink-0"
-                  />
+                  <div key={idx} className="relative shrink-0">
+                    <img
+                      src={item.previewUrl}
+                      alt={`${title} ${idx + 1}`}
+                      className="h-24 w-24 rounded-xl object-cover border border-gray-200"
+                    />
+                    <div className="absolute left-1 bottom-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      {idx + 1}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto(photoGroup, idx)}
+                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white shadow-md"
+                      aria-label={`Remove ${title} ${idx + 1}`}
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -846,21 +917,23 @@
           <div className="space-y-4">
             <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6">
               <h2 className="text-xl font-bold mb-1">New Pink Sticker</h2>
-              <p className="text-sm text-gray-500">Minimum 1 sticker photo and 1 vessel photo are required.</p>
+              <p className="text-sm text-gray-500">Minimum 1 sticker photo and 1 vessel photo are required. You can add multiple photos with no set limit.</p>
             </div>
 
             <PhotoPickerCard
               title="Sticker Photo"
-              description="Take a clear photo showing the pink sticker attached to the vessel."
+              description="Take clear photos showing the pink sticker attached to the vessel. Multiple photos can be added."
               items={form.stickerPhotos}
               onChange={handleSelectStickerPhotos}
+              photoGroup="stickerPhotos"
             />
 
             <PhotoPickerCard
               title="Vessel Photo"
-              description="Take a clear full-vessel photo."
+              description="Take clear full-vessel photos. Multiple photos can be added."
               items={form.vesselPhotos}
               onChange={handleSelectVesselPhotos}
+              photoGroup="vesselPhotos"
             />
 
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-4">
@@ -963,6 +1036,71 @@
         );
       }
 
+      function renderAllStickerList() {
+        return (
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold">All Pink Stickers</h3>
+                <p className="text-xs text-gray-500">Latest entries are shown first.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="text-sm text-gray-500">
+                  {isLoadingAllStickers ? 'Loading...' : `${allStickers.length} total`}
+                </div>
+                <button
+                  type="button"
+                  onClick={loadAllStickers}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs font-semibold"
+                >
+                  <Icons.Refresh className="w-3 h-3" /> Refresh
+                </button>
+              </div>
+            </div>
+            <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-2xl border border-gray-200 thumb-scroll">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="sticky top-0 z-10 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold">Sticker No.</th>
+                    <th className="px-3 py-2 text-left font-semibold">Vessel Name</th>
+                    <th className="px-3 py-2 text-left font-semibold">Status</th>
+                    <th className="px-3 py-2 text-left font-semibold">Created at</th>
+                    <th className="px-3 py-2 text-left font-semibold">Stickered by</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {isLoadingAllStickers ? (
+                    <tr>
+                      <td className="px-3 py-4 text-gray-500" colSpan="5">Loading pink stickers...</td>
+                    </tr>
+                  ) : allStickers.length ? allStickers.map((item) => (
+                    <tr
+                      key={item.id}
+                      onClick={() => openStickerDetail(item)}
+                      className="cursor-pointer hover:bg-pink-50"
+                    >
+                      <td className="px-3 py-3 font-bold text-gray-900 whitespace-nowrap">{item.sticker_no || '-'}</td>
+                      <td className="px-3 py-3 text-gray-900 min-w-[160px]">{item.vessel_name || '-'}</td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${item.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-pink-100 text-pink-700'}`}>
+                          {item.status === 'resolved' ? 'Resolved' : 'Active'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{toDateText(item.created_at)}</td>
+                      <td className="px-3 py-3 text-gray-700 min-w-[120px]">{item.stickered_by || '-'}</td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td className="px-3 py-4 text-gray-500" colSpan="5">No pink stickers found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      }
+
       function renderSearch() {
         return (
           <div className="space-y-4">
@@ -1013,7 +1151,6 @@
                     {searchResults.length} result{searchResults.length > 1 ? 's' : ''}
                   </div>
                 </div>
-
                 <div className="space-y-3">
                   {searchResults.map((item) => (
                     <button
@@ -1027,12 +1164,10 @@
                           <div className="text-xs uppercase tracking-wide text-gray-500">Pink Sticker</div>
                           <div className="font-bold text-gray-900">{item.sticker_no}</div>
                         </div>
-
                         <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${item.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-pink-100 text-pink-700'}`}>
                           {item.status === 'resolved' ? 'Resolved' : 'Active'}
                         </div>
                       </div>
-
                       <div className="mt-3 grid gap-2 sm:grid-cols-2 text-sm">
                         <div>
                           <div className="text-gray-500">Vessel Name</div>
@@ -1056,6 +1191,8 @@
                 </div>
               </div>
             )}
+
+            {renderAllStickerList()}
           </div>
         );
       }
@@ -1241,7 +1378,7 @@
         if (screen === 'search') return renderSearch();
         if (screen === 'detail') return renderDetail();
         return renderHome();
-      }, [screen, form, isSaving, isFetchingLocation, searchType, searchStickerNo, searchResults, isSearching, selectedSticker, selectedPhotos, selectedNotes, noteInput, noteAuthor, resolvedBy, isEditingLocation, locationEditor]);
+      }, [screen, form, isSaving, isFetchingLocation, searchType, searchStickerNo, searchResults, allStickers, isLoadingAllStickers, isSearching, selectedSticker, selectedPhotos, selectedNotes, noteInput, noteAuthor, resolvedBy, isEditingLocation, locationEditor]);
 
       return (
         <div className="min-h-screen bg-gray-50">
