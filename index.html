@@ -88,6 +88,39 @@
         height: min(calc(100vw - 4rem), 640px);
       }
     }
+    .all-stickers-y-scroll {
+      width: 100%;
+      height: 430px;
+      max-height: min(56vh, 520px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
+      touch-action: pan-y;
+      position: relative;
+      background: #fff;
+    }
+    .all-stickers-x-scroll {
+      width: 100%;
+      min-width: 100%;
+      overflow-x: auto;
+      overflow-y: visible;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-x: contain;
+      touch-action: pan-x pan-y;
+    }
+    .all-stickers-x-scroll table {
+      min-width: 760px;
+    }
+    @media (max-width: 640px) {
+      .all-stickers-y-scroll {
+        height: 420px;
+        max-height: 58vh;
+      }
+      .all-stickers-x-scroll table {
+        min-width: 720px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -455,6 +488,8 @@
       const mapRef = useRef(null);
       const mapInstanceRef = useRef(null);
       const mapMarkerRef = useRef(null);
+      const allStickersTouchStartRef = useRef(null);
+      const allStickersIsScrollingRef = useRef(false);
 
       useEffect(() => {
         if (screen === 'new' && !form.location && !isFetchingLocation) {
@@ -1102,6 +1137,36 @@
         );
       }
 
+      function handleAllStickersTouchStart(e) {
+        const touch = e.touches?.[0];
+        if (!touch) return;
+        allStickersTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+        allStickersIsScrollingRef.current = false;
+      }
+
+      function handleAllStickersTouchMove(e) {
+        const touch = e.touches?.[0];
+        const start = allStickersTouchStartRef.current;
+        if (!touch || !start) return;
+        const dx = Math.abs(touch.clientX - start.x);
+        const dy = Math.abs(touch.clientY - start.y);
+        if (dx > 6 || dy > 6) {
+          allStickersIsScrollingRef.current = true;
+        }
+      }
+
+      function handleAllStickersTouchEnd() {
+        setTimeout(() => {
+          allStickersIsScrollingRef.current = false;
+          allStickersTouchStartRef.current = null;
+        }, 160);
+      }
+
+      function handleAllStickerRowClick(item) {
+        if (allStickersIsScrollingRef.current) return;
+        openStickerDetail(item);
+      }
+
       function renderAllStickerList() {
         return (
           <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-3">
@@ -1123,8 +1188,15 @@
                 </button>
               </div>
             </div>
-            <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-2xl border border-gray-200 thumb-scroll">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <div
+              className="all-stickers-y-scroll rounded-2xl border border-gray-200 thumb-scroll"
+              onTouchStart={handleAllStickersTouchStart}
+              onTouchMove={handleAllStickersTouchMove}
+              onTouchEnd={handleAllStickersTouchEnd}
+              onTouchCancel={handleAllStickersTouchEnd}
+            >
+              <div className="all-stickers-x-scroll thumb-scroll">
+                <table className="divide-y divide-gray-200 text-sm">
                 <thead className="sticky top-0 z-10 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold">Sticker No.</th>
@@ -1138,12 +1210,12 @@
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {isLoadingAllStickers ? (
                     <tr>
-                      <td className="px-3 py-4 text-gray-500" colSpan="5">Loading pink stickers...</td>
+                      <td className="px-3 py-4 text-gray-500" colSpan="6">Loading pink stickers...</td>
                     </tr>
                   ) : allStickers.length ? allStickers.map((item) => (
                     <tr
                       key={item.id}
-                      onClick={() => openStickerDetail(item)}
+                      onClick={() => handleAllStickerRowClick(item)}
                       className="cursor-pointer hover:bg-pink-50"
                     >
                       <td className="px-3 py-3 font-bold text-gray-900 whitespace-nowrap">{item.sticker_no || '-'}</td>
@@ -1159,11 +1231,12 @@
                     </tr>
                   )) : (
                     <tr>
-                      <td className="px-3 py-4 text-gray-500" colSpan="5">No pink stickers found.</td>
+                      <td className="px-3 py-4 text-gray-500" colSpan="6">No pink stickers found.</td>
                     </tr>
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           </div>
         );
