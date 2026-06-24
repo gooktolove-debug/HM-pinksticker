@@ -70,10 +70,23 @@
 
     #detail-map {
       width: 100%;
-      height: 220px;
+      aspect-ratio: 1 / 1;
+      height: auto;
       border-radius: 1rem;
       overflow: hidden;
       z-index: 0;
+      background: #dbeafe;
+      border: 2px solid #1f2937;
+    }
+    #detail-map .leaflet-container,
+    #detail-map .leaflet-pane,
+    #detail-map .leaflet-tile-pane {
+      border-radius: 1rem;
+    }
+    @supports not (aspect-ratio: 1 / 1) {
+      #detail-map {
+        height: min(calc(100vw - 4rem), 640px);
+      }
     }
   </style>
 </head>
@@ -464,35 +477,64 @@
         };
       }, []);
 
+      function cleanupDetailMap() {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.remove();
+          mapInstanceRef.current = null;
+        }
+        mapMarkerRef.current = null;
+      }
+
       useEffect(() => {
         if (screen !== 'detail' || !selectedSticker || selectedSticker.latitude == null || selectedSticker.longitude == null) {
+          cleanupDetailMap();
+          return;
+        }
+        if (!mapRef.current || !window.L) return;
+
+        const latitude = Number(selectedSticker.latitude);
+        const longitude = Number(selectedSticker.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          cleanupDetailMap();
           return;
         }
 
-        if (!mapRef.current) return;
+        const latlng = [latitude, longitude];
+        cleanupDetailMap();
 
-        if (!mapInstanceRef.current) {
-          const map = L.map(mapRef.current, { zoomControl: false }).setView([selectedSticker.latitude, selectedSticker.longitude], 15);
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: '© OSM © CARTO',
-          }).addTo(map);
-          mapInstanceRef.current = map;
-        }
+        const map = L.map(mapRef.current, {
+          zoomControl: true,
+          attributionControl: true,
+          preferCanvas: true,
+        }).setView(latlng, 14);
 
-        const map = mapInstanceRef.current;
-        const latlng = [selectedSticker.latitude, selectedSticker.longitude];
-        map.setView(latlng, 15);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          crossOrigin: true,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+        }).addTo(map);
 
-        if (!mapMarkerRef.current) {
-          mapMarkerRef.current = L.marker(latlng).addTo(map);
-        } else {
-          mapMarkerRef.current.setLatLng(latlng);
-        }
+        const seamarkLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+          maxZoom: 18,
+          opacity: 0.9,
+          crossOrigin: true,
+          attribution: 'Seamarks &copy; OpenSeaMap',
+        });
 
-        setTimeout(() => {
-          map.invalidateSize();
-        }, 100);
-      }, [screen, selectedSticker]);
+        seamarkLayer.on('tileerror', () => {
+          if (map.hasLayer(seamarkLayer)) map.removeLayer(seamarkLayer);
+        });
+        seamarkLayer.addTo(map);
+
+        mapMarkerRef.current = L.marker(latlng).addTo(map);
+        mapInstanceRef.current = map;
+
+        const refreshMapSize = () => map.invalidateSize({ pan: false });
+        requestAnimationFrame(refreshMapSize);
+        [150, 400, 900].forEach((delay) => setTimeout(refreshMapSize, delay));
+
+        return cleanupDetailMap;
+      }, [screen, selectedSticker?.id, selectedSticker?.latitude, selectedSticker?.longitude]);
 
       function resetMessages() {
         setErrorMessage('');
