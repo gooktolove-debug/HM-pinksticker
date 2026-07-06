@@ -470,6 +470,9 @@
       const [noteInput, setNoteInput] = useState('');
       const [noteAuthor, setNoteAuthor] = useState('');
       const [resolvedBy, setResolvedBy] = useState('');
+      const [additionalStickerPhotos, setAdditionalStickerPhotos] = useState([]);
+      const [additionalVesselPhotos, setAdditionalVesselPhotos] = useState([]);
+      const [isUploadingAdditionalPhotos, setIsUploadingAdditionalPhotos] = useState(false);
       const mapRef = useRef(null);
       const mapInstanceRef = useRef(null);
       const mapMarkerRef = useRef(null);
@@ -490,6 +493,9 @@
         return () => {
           // cleanup object URLs
           [...form.stickerPhotos, ...form.vesselPhotos].forEach((item) => {
+            if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+          });
+          [...additionalStickerPhotos, ...additionalVesselPhotos].forEach((item) => {
             if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
           });
         };
@@ -652,6 +658,67 @@
         });
       }
 
+      function handleSelectAdditionalStickerPhotos(e) {
+        const nextFiles = normalizeFiles(e.target.files);
+        setAdditionalStickerPhotos((prev) => [...prev, ...nextFiles]);
+        e.target.value = '';
+      }
+
+      function handleSelectAdditionalVesselPhotos(e) {
+        const nextFiles = normalizeFiles(e.target.files);
+        setAdditionalVesselPhotos((prev) => [...prev, ...nextFiles]);
+        e.target.value = '';
+      }
+
+      function handleRemoveAdditionalPhoto(photoGroup, indexToRemove) {
+        const setter = photoGroup === 'sticker' ? setAdditionalStickerPhotos : setAdditionalVesselPhotos;
+        setter((prev) => {
+          const itemToRemove = prev[indexToRemove];
+          if (itemToRemove?.previewUrl) URL.revokeObjectURL(itemToRemove.previewUrl);
+          return prev.filter((_, idx) => idx !== indexToRemove);
+        });
+      }
+
+      function clearAdditionalPhotos() {
+        [...additionalStickerPhotos, ...additionalVesselPhotos].forEach((item) => {
+          if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        });
+        setAdditionalStickerPhotos([]);
+        setAdditionalVesselPhotos([]);
+      }
+
+      async function handleUploadAdditionalPhotos() {
+        resetMessages();
+        if (!selectedSticker) return;
+        if (!additionalStickerPhotos.length && !additionalVesselPhotos.length) {
+          setErrorMessage('Please select at least 1 photo to add.');
+          return;
+        }
+        setIsUploadingAdditionalPhotos(true);
+        try {
+          const uploadedPhotos = [];
+          const existingStickerCount = selectedPhotos.filter((p) => p.photo_type === 'sticker').length;
+          const existingVesselCount = selectedPhotos.filter((p) => p.photo_type === 'vessel' || p.photo_type === 'legacy').length;
+          for (let i = 0; i < additionalStickerPhotos.length; i++) {
+            const uploaded = await uploadPinkStickerPhoto(additionalStickerPhotos[i], selectedSticker.sticker_no, 'sticker', existingStickerCount + i + 1);
+            uploadedPhotos.push(uploaded);
+          }
+          for (let i = 0; i < additionalVesselPhotos.length; i++) {
+            const uploaded = await uploadPinkStickerPhoto(additionalVesselPhotos[i], selectedSticker.sticker_no, 'vessel', existingVesselCount + i + 1);
+            uploadedPhotos.push(uploaded);
+          }
+          await insertPinkStickerPhotoRows(selectedSticker.id, uploadedPhotos);
+          clearAdditionalPhotos();
+          await handleRefreshDetails(selectedSticker.id, selectedSticker.sticker_no);
+          setSuccessMessage('Photo(s) added successfully.');
+        } catch (err) {
+          console.error(err);
+          setErrorMessage(err?.message || 'Failed to add photo(s).');
+        } finally {
+          setIsUploadingAdditionalPhotos(false);
+        }
+      }
+
       async function handleSubmit() {
         resetMessages();
         const validationError = validatePinkStickerForm(form);
@@ -709,6 +776,8 @@
         setResolvedBy('');
         setNoteInput('');
         setNoteAuthor('');
+        setAdditionalStickerPhotos([]);
+        setAdditionalVesselPhotos([]);
         setScreen('detail');
       }
 
@@ -1380,6 +1449,68 @@
                   </div>
                 ) : <div className="text-sm text-gray-500">No vessel photos found.</div>}
               </div>
+              <div className="border-t border-gray-100 pt-4 space-y-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">Add more photos</div>
+                  <div className="text-xs text-gray-500">Add extra sticker or vessel photos to this existing pink sticker record.</div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block rounded-2xl border-2 border-dashed border-pink-200 bg-pink-50 hover:bg-pink-100 transition p-4 cursor-pointer text-center">
+                    <div className="flex flex-col items-center gap-2 text-pink-700">
+                      <Icons.Camera className="w-6 h-6" />
+                      <div className="font-semibold">Add sticker photo</div>
+                      <div className="text-xs text-pink-600">Camera or album - multiple allowed</div>
+                    </div>
+                    <input className="camera-input hidden" type="file" accept="image/*" multiple onChange={handleSelectAdditionalStickerPhotos} />
+                  </label>
+                  <label className="block rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 hover:bg-gray-100 transition p-4 cursor-pointer text-center">
+                    <div className="flex flex-col items-center gap-2 text-gray-700">
+                      <Icons.Camera className="w-6 h-6" />
+                      <div className="font-semibold">Add vessel photo</div>
+                      <div className="text-xs text-gray-500">Camera or album - multiple allowed</div>
+                    </div>
+                    <input className="camera-input hidden" type="file" accept="image/*" multiple onChange={handleSelectAdditionalVesselPhotos} />
+                  </label>
+                </div>
+                {(additionalStickerPhotos.length > 0 || additionalVesselPhotos.length > 0) && (
+                  <div className="space-y-3 rounded-2xl border border-gray-100 bg-gray-50 p-3">
+                    {additionalStickerPhotos.length > 0 && (
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">New sticker photos</div>
+                        <div className="flex gap-3 overflow-x-auto thumb-scroll pb-1">
+                          {additionalStickerPhotos.map((item, idx) => (
+                            <div key={idx} className="relative shrink-0">
+                              <img src={item.previewUrl} alt={`New sticker photo ${idx + 1}`} className="h-24 w-24 rounded-xl object-cover border border-gray-200" />
+                              <button type="button" onClick={() => handleRemoveAdditionalPhoto('sticker', idx)} className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white shadow-md" aria-label={`Remove new sticker photo ${idx + 1}`}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {additionalVesselPhotos.length > 0 && (
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">New vessel photos</div>
+                        <div className="flex gap-3 overflow-x-auto thumb-scroll pb-1">
+                          {additionalVesselPhotos.map((item, idx) => (
+                            <div key={idx} className="relative shrink-0">
+                              <img src={item.previewUrl} alt={`New vessel photo ${idx + 1}`} className="h-24 w-24 rounded-xl object-cover border border-gray-200" />
+                              <button type="button" onClick={() => handleRemoveAdditionalPhoto('vessel', idx)} className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white shadow-md" aria-label={`Remove new vessel photo ${idx + 1}`}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <button type="button" onClick={handleUploadAdditionalPhotos} disabled={isUploadingAdditionalPhotos} className="h-11 rounded-2xl bg-pink-600 text-white font-semibold hover:bg-pink-700 disabled:bg-gray-300">
+                        {isUploadingAdditionalPhotos ? 'Uploading...' : 'Save Added Photos'}
+                      </button>
+                      <button type="button" onClick={clearAdditionalPhotos} disabled={isUploadingAdditionalPhotos} className="h-11 rounded-2xl bg-white border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50 disabled:bg-gray-100">
+                        Cancel selected photos
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
@@ -1471,7 +1602,7 @@
         if (screen === 'search') return renderSearch();
         if (screen === 'detail') return renderDetail();
         return renderHome();
-      }, [screen, form, isSaving, isFetchingLocation, searchType, searchStickerNo, searchResults, allStickers, isLoadingAllStickers, isSearching, selectedSticker, selectedPhotos, selectedNotes, noteInput, noteAuthor, resolvedBy, isEditingLocation, locationEditor]);
+      }, [screen, form, isSaving, isFetchingLocation, searchType, searchStickerNo, searchResults, allStickers, isLoadingAllStickers, isSearching, selectedSticker, selectedPhotos, selectedNotes, noteInput, noteAuthor, resolvedBy, additionalStickerPhotos, additionalVesselPhotos, isUploadingAdditionalPhotos, isEditingLocation, locationEditor]);
 
       return (
         <div className="min-h-screen bg-gray-50">
