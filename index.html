@@ -83,6 +83,27 @@
     #detail-map .leaflet-tile-pane {
       border-radius: 1rem;
     }
+
+    #search-map {
+      width: 100%;
+      height: 560px;
+      min-height: 420px;
+      border-radius: 1rem;
+      overflow: hidden;
+      z-index: 0;
+      background: #dbeafe;
+      border: 2px solid #1f2937;
+    }
+    #search-map .leaflet-container,
+    #search-map .leaflet-pane,
+    #search-map .leaflet-tile-pane {
+      border-radius: 1rem;
+    }
+    @media (max-width: 1024px) {
+      #search-map {
+        height: 420px;
+      }
+    }
     @supports not (aspect-ratio: 1 / 1) {
       #detail-map {
         height: min(calc(100vw - 4rem), 640px);
@@ -268,6 +289,35 @@
           lngDir: lng === '' ? 'E' : (Number(lng) >= 0 ? 'E' : 'W'),
         };
       }
+      function hasValidCoordinates(item) {
+        if (!item) return false;
+        if (item.latitude === null || item.latitude === undefined || item.latitude === '') return false;
+        if (item.longitude === null || item.longitude === undefined || item.longitude === '') return false;
+        const latitude = Number(item.latitude);
+        const longitude = Number(item.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+        if (latitude < -90 || latitude > 90) return false;
+        if (longitude < -180 || longitude > 180) return false;
+        // Ignore blank legacy records that can become 0,0 after Number(null) conversion.
+        if (latitude === 0 && longitude === 0) return false;
+        return true;
+      }
+      function isActiveSticker(item) {
+        return String(item?.status || '').trim().toLowerCase() === 'active';
+      }
+
+      function shouldShowMapPin(item) {
+        return isActiveSticker(item) && hasValidCoordinates(item);
+      }
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        }[ch]));
+      }
 
     function validatePinkStickerForm(form) {
       if (!form.stickerNo?.trim()) return 'Sticker No. is required.';
@@ -409,6 +459,25 @@
       return data || [];
     }
 
+    async function fetchSmartSearchResults(searchText) {
+      const cleaned = searchText.trim();
+      if (!cleaned) return [];
+      const [exactSticker, vesselMatches, mooringMatches] = await Promise.all([
+        fetchStickerByNumber(cleaned),
+        fetchStickersByVesselName(cleaned),
+        fetchStickersByMooringNumber(cleaned),
+      ]);
+      const combined = [];
+      const seenIds = new Set();
+      [exactSticker, ...(vesselMatches || []), ...(mooringMatches || [])].forEach((item) => {
+        if (item && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          combined.push(item);
+        }
+      });
+      return combined;
+    }
+
     async function fetchAllStickers() {
       const { data, error } = await sb
         .from('pink_stickers')
@@ -476,6 +545,9 @@
       const mapRef = useRef(null);
       const mapInstanceRef = useRef(null);
       const mapMarkerRef = useRef(null);
+      const searchMapRef = useRef(null);
+      const searchMapInstanceRef = useRef(null);
+      const searchMarkersLayerRef = useRef(null);
 
       useEffect(() => {
         if (screen === 'new' && !form.location && !isFetchingLocation) {
@@ -510,7 +582,7 @@
       }
 
       useEffect(() => {
-        if (screen !== 'detail' || !selectedSticker || selectedSticker.latitude == null || selectedSticker.longitude == null) {
+        if (screen !== 'detail' || !selectedSticker || !hasValidCoordinates(selectedSticker)) {
           cleanupDetailMap();
           return;
         }
@@ -559,6 +631,92 @@
 
         return cleanupDetailMap;
       }, [screen, selectedSticker?.id, selectedSticker?.latitude, selectedSticker?.longitude]);
+
+
+      function cleanupSearchMap() {
+        if (searchMapInstanceRef.current) {
+          searchMapInstanceRef.current.remove();
+          searchMapInstanceRef.current = null;
+        }
+        searchMarkersLayerRef.current = null;
+      }
+
+      useEffect(() => {
+        if (screen !== 'search') {
+          cleanupSearchMap();
+          return;
+        }
+        if (!searchMapRef.current || !window.L) return;
+
+        const stickersWithLocation = (allStickers || []).filter(shouldShowMapPin);
+
+        cleanupSearchMap();
+
+        const defaultCenter = [-36.8485, 174.7633];
+        const map = L.map(searchMapRef.current, {
+          zoomControl: true,
+          attributionControl: true,
+          preferCanvas: true,
+        }).setView(defaultCenter, 11);
+
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          crossOrigin: true,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+        }).addTo(map);
+
+        const seamarkLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+          maxZoom: 18,
+          opacity: 0.9,
+          crossOrigin: true,
+          attribution: 'Seamarks &copy; OpenSeaMap',
+        });
+        seamarkLayer.on('tileerror', () => {
+          if (map.hasLayer(seamarkLayer)) map.removeLayer(seamarkLayer);
+        });
+        seamarkLayer.addTo(map);
+
+        const markers = L.layerGroup().addTo(map);
+        searchMarkersLayerRef.current = markers;
+
+        const bounds = [];
+        stickersWithLocation.forEach((item) => {
+          if (!shouldShowMapPin(item)) return;
+          const latitude = Number(item.latitude);
+          const longitude = Number(item.longitude);
+          const latlng = [latitude, longitude];
+          bounds.push(latlng);
+          const stickerLabel = item.sticker_no ? `Pink Sticker ${item.sticker_no}` : 'Pink Sticker';
+          const vesselName = item.vessel_name?.trim() || '-';
+          const mooringNumber = item.mooring_number?.trim() || '';
+          const markerTitle = `${stickerLabel} - Vessel: ${vesselName}`;
+          const subtitle = [vesselName !== '-' ? vesselName : '', mooringNumber].filter(Boolean).join(' - ');
+          const safeStickerLabel = escapeHtml(stickerLabel);
+          const safeVesselName = escapeHtml(vesselName);
+          const safeSubtitle = escapeHtml(subtitle || 'No vessel/mooring details');
+          const safeStatus = escapeHtml(item.status === 'resolved' ? 'Resolved' : 'Active');
+          const marker = L.marker(latlng, { title: markerTitle }).addTo(markers);
+          marker.bindTooltip(`<strong>${safeStickerLabel}</strong><br>Vessel: ${safeVesselName}`, {
+            direction: 'top',
+            offset: [0, -12],
+            opacity: 0.95,
+            sticky: true,
+          });
+          marker.bindPopup(`<strong>${safeStickerLabel}</strong><br>${safeSubtitle}<br><span>${safeStatus}</span>`);
+          marker.on('click', () => openStickerDetail(item));
+        });
+
+        if (bounds.length) {
+          map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
+        }
+
+        searchMapInstanceRef.current = map;
+        const refreshMapSize = () => map.invalidateSize({ pan: false });
+        requestAnimationFrame(refreshMapSize);
+        [150, 400, 900].forEach((delay) => setTimeout(refreshMapSize, delay));
+
+        return cleanupSearchMap;
+      }, [screen, allStickers]);
 
       function resetMessages() {
         setErrorMessage('');
@@ -783,44 +941,29 @@
 
       async function handleSearch() {
         resetMessages();
-        if (!searchStickerNo.trim()) {
-          setErrorMessage(
-            searchType === 'sticker'
-              ? 'Please enter a Pink Sticker No.'
-              : searchType === 'vessel'
-                ? 'Please enter a Vessel Name.'
-                : 'Please enter a Mooring Number.'
-          );
+        const cleanedSearch = searchStickerNo.trim();
+        if (!cleanedSearch) {
+          setErrorMessage('Please enter a Sticker No., Vessel Name, or Mooring Number.');
           return;
         }
-
         setIsSearching(true);
         try {
           setSearchResults([]);
-
-          if (searchType === 'sticker') {
-            const sticker = await fetchStickerByNumber(searchStickerNo);
-            if (!sticker) {
-              setSelectedSticker(null);
-              setSelectedPhotos([]);
-              setSelectedNotes([]);
-              setErrorMessage('No sticker found for that number.');
-              return;
-            }
-            await openStickerDetail(sticker);
-            return;
-          }
-
-          const results = searchType === 'mooring'
-            ? await fetchStickersByMooringNumber(searchStickerNo)
-            : await fetchStickersByVesselName(searchStickerNo);
+          const results = await fetchSmartSearchResults(cleanedSearch);
           if (!results.length) {
             setSelectedSticker(null);
             setSelectedPhotos([]);
             setSelectedNotes([]);
-            setErrorMessage(searchType === 'mooring'
-              ? 'No stickers found for that mooring number.'
-              : 'No stickers found for that vessel name.');
+            setErrorMessage('No stickers found for that search.');
+            return;
+          }
+          const exactStickerMatch = results.find((item) => String(item.sticker_no || '').trim().toLowerCase() === cleanedSearch.toLowerCase());
+          if (exactStickerMatch) {
+            await openStickerDetail(exactStickerMatch);
+            return;
+          }
+          if (results.length === 1) {
+            await openStickerDetail(results[0]);
             return;
           }
           setSearchResults(results);
@@ -1261,33 +1404,16 @@
           <div className="space-y-4">
             <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-2">
               <h2 className="text-xl font-bold">Search Pink Sticker</h2>
-              <p className="text-sm text-gray-500">Search by exact Pink Sticker No., Vessel Name, or Mooring Number.</p>
-              <div className="grid gap-3 sm:grid-cols-[180px_1fr_auto] pt-2">
-                <select
-                  value={searchType}
-                  onChange={(e) => {
-                    setSearchType(e.target.value);
-                    setSearchStickerNo('');
-                    setSearchResults([]);
-                    resetMessages();
-                  }}
-                  className="h-11 rounded-xl border border-gray-300 px-3 outline-none focus:ring-2 focus:ring-pink-500 bg-white"
-                >
-                  <option value="sticker">Sticker No.</option>
-                  <option value="vessel">Vessel Name</option>
-                  <option value="mooring">Mooring Number</option>
-                </select>
+              <p className="text-sm text-gray-500">Enter a Sticker No., Vessel Name, or Mooring Number. The app will search all fields automatically.</p>
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto] pt-2">
                 <input
                   type="text"
                   value={searchStickerNo}
                   onChange={(e) => setSearchStickerNo(e.target.value)}
-                  placeholder={
-                    searchType === 'sticker'
-                      ? 'Enter exact Pink Sticker No.'
-                      : searchType === 'vessel'
-                        ? 'Enter vessel name'
-                        : 'Enter mooring number'
-                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSearch();
+                  }}
+                  placeholder="Enter sticker no., vessel name, or mooring number"
                   className="flex-1 h-11 rounded-xl border border-gray-300 px-3 outline-none focus:ring-2 focus:ring-pink-500"
                 />
                 <button
@@ -1298,10 +1424,9 @@
                 >
                   {isSearching ? 'Searching...' : 'Search'}
                 </button>
-              </div>
-            </div>
+              </div>            </div>
 
-            {searchType !== 'sticker' && searchResults.length > 0 && (
+            {searchResults.length > 0 && (
               <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-lg font-bold">Search Results</h3>
@@ -1350,7 +1475,23 @@
               </div>
             )}
 
-            {renderAllStickerList()}
+            <div className="grid gap-4 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] items-start">
+              <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4 lg:sticky lg:top-20">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-bold">Location Map</h3>
+                    <p className="text-xs text-gray-500">Pins show active pink stickers with saved coordinates.</p>
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    {(allStickers || []).filter(shouldShowMapPin).length} active pins
+                  </div>
+                </div>
+                <div id="search-map" ref={searchMapRef}></div>
+              </div>
+              <div className="min-w-0">
+                {renderAllStickerList()}
+              </div>
+            </div>
           </div>
         );
       }
@@ -1515,7 +1656,7 @@
 
             <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
               <h3 className="text-lg font-bold">Location</h3>
-              {selectedSticker.latitude != null && selectedSticker.longitude != null ? (
+              {hasValidCoordinates(selectedSticker) ? (
                 <div id="detail-map" ref={mapRef}></div>
               ) : (
                 <div className="text-sm text-gray-500">No location available.</div>
@@ -1607,7 +1748,7 @@
       return (
         <div className="min-h-screen bg-gray-50">
           {renderHeader()}
-          <main className="max-w-3xl mx-auto px-4 py-5 pb-24">
+          <main className={screen === 'search' ? "max-w-7xl mx-auto px-4 py-5 pb-24" : "max-w-3xl mx-auto px-4 py-5 pb-24"}>
             {content}
           </main>
           {renderMessageBar()}
