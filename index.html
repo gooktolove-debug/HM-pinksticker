@@ -151,9 +151,9 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
 
     // If you are using the same Supabase project as the map app, these can stay as-is.
     // Replace only if you decide to move to a different project later.
-    const SUPABASE_URL = 'https://hjrcnsuzrztaiwnttxnr.supabase.co';
-    const SUPABASE_KEY = 'sb_publishable_8vscwHQ7y50eUj-RywvmLQ_JGpSp2HE';
-    const STORAGE_BUCKET = 'Pink-sticker-photos';
+    const SUPABASE_URL = 'https://wgwlnutnstrfuiiunlcu.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_iC7kbinoy61_5eQCnrV25Q_OioA7Y1x';
+    const STORAGE_BUCKET = 'pink-sticker-photos';
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
     const STORAGE_KEY_STICKERED_BY = 'pink_sticker_last_stickered_by';
@@ -380,7 +380,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
 
     async function createPinkStickerRow(form) {
       const { data, error } = await sb
-        .from('pink_stickers')
+        .from('pink_sticker_records')
         .insert({
           sticker_no: form.stickerNo.trim(),
           vessel_name: form.vesselName.trim(),
@@ -406,10 +406,8 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
         contentType: fileWrapper.file.type || 'image/jpeg',
       });
       if (error) throw error;
-      const { data } = sb.storage.from(STORAGE_BUCKET).getPublicUrl(path);
       return {
         storage_path: path,
-        public_url: data.publicUrl,
         photo_type: photoType,
       };
     }
@@ -420,7 +418,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
         pink_sticker_id: stickerId,
         photo_type: p.photo_type,
         storage_path: p.storage_path,
-        public_url: p.public_url,
+        public_url: null,
       }));
       const { error } = await sb.from('pink_sticker_photos').insert(rows);
       if (error) throw error;
@@ -440,7 +438,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
       const cleaned = stickerNo.trim();
       if (!cleaned) return null;
       const { data, error } = await sb
-        .from('pink_stickers')
+        .from('pink_sticker_records')
         .select('*')
         .eq('sticker_no', cleaned)
         .maybeSingle();
@@ -452,7 +450,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
       const cleaned = vesselName.trim();
       if (!cleaned) return [];
       const { data, error } = await sb
-        .from('pink_stickers')
+        .from('pink_sticker_records')
         .select('*')
         .ilike('vessel_name', `%${cleaned}%`)
         .order('created_at', { ascending: false });
@@ -464,7 +462,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
       const cleaned = mooringNumber.trim();
       if (!cleaned) return [];
       const { data, error } = await sb
-        .from('pink_stickers')
+        .from('pink_sticker_records')
         .select('*')
         .ilike('mooring_number', `%${cleaned}%`)
         .order('created_at', { ascending: false });
@@ -493,7 +491,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
 
     async function fetchAllStickers() {
       const { data, error } = await sb
-        .from('pink_stickers')
+        .from('pink_sticker_records')
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -507,7 +505,23 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
       ]);
       if (photoError) throw photoError;
       if (noteError) throw noteError;
-      return { photos: photos || [], notes: notes || [] };
+      const photoRows = photos || [];
+      const paths = photoRows.map((photo) => photo.storage_path).filter(Boolean);
+      const signedByPath = {};
+      if (paths.length) {
+        const { data: signedRows, error: signedError } = await sb.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrls(paths, 3600);
+        if (signedError) throw signedError;
+        (signedRows || []).forEach((item) => {
+          if (item.path && item.signedUrl) signedByPath[item.path] = item.signedUrl;
+        });
+      }
+      const photosWithSignedUrls = photoRows.map((photo) => ({
+        ...photo,
+        signed_url: signedByPath[photo.storage_path] || '',
+      }));
+      return { photos: photosWithSignedUrls, notes: notes || [] };
     }
 
     async function addNote(stickerId, noteText, createdBy) {
@@ -521,7 +535,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
 
     async function markResolved(stickerId, resolvedBy) {
       const { error } = await sb
-        .from('pink_stickers')
+        .from('pink_sticker_records')
         .update({
           status: 'resolved',
           resolved_at: new Date().toISOString(),
@@ -1575,8 +1589,8 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
                 {stickerPhotos.length ? (
                   <div className="flex gap-3 overflow-x-auto thumb-scroll pb-1">
                     {stickerPhotos.map((photo) => (
-                      <a key={photo.id} href={photo.public_url} target="_blank" rel="noreferrer">
-                        <img src={photo.public_url} alt="Sticker" className="h-28 w-28 rounded-xl object-cover border border-gray-200 shrink-0" />
+                      <a key={photo.id} href={photo.signed_url} target="_blank" rel="noreferrer">
+                        <img src={photo.signed_url} alt="Sticker" className="h-28 w-28 rounded-xl object-cover border border-gray-200 shrink-0" />
                       </a>
                     ))}
                   </div>
@@ -1587,8 +1601,8 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
                 {vesselPhotos.length ? (
                   <div className="flex gap-3 overflow-x-auto thumb-scroll pb-1">
                     {vesselPhotos.map((photo) => (
-                      <a key={photo.id} href={photo.public_url} target="_blank" rel="noreferrer">
-                        <img src={photo.public_url} alt="Vessel" className="h-28 w-28 rounded-xl object-cover border border-gray-200 shrink-0" />
+                      <a key={photo.id} href={photo.signed_url} target="_blank" rel="noreferrer">
+                        <img src={photo.signed_url} alt="Vessel" className="h-28 w-28 rounded-xl object-cover border border-gray-200 shrink-0" />
                       </a>
                     ))}
                   </div>
