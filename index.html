@@ -104,6 +104,67 @@
         height: 420px;
       }
     }
+    /* Mobile sticker detail: information first, notes immediately below */
+    .detail-layout {
+      display: flex;
+      flex-direction: column;
+    }
+    .detail-info { order: 1; }
+    .detail-notes { order: 2; }
+    .detail-photos { order: 3; }
+    .detail-location { order: 4; }
+
+    /* Desktop sticker detail: location left, record content right */
+    @media (min-width: 1024px) {
+      .detail-layout {
+        display: grid;
+        grid-template-columns: minmax(420px, 0.95fr) minmax(0, 1.25fr);
+        grid-template-areas:
+          "location info"
+          "location notes"
+          "location photos";
+        gap: 1rem;
+        align-items: start;
+      }
+      .detail-info { grid-area: info; }
+      .detail-notes { grid-area: notes; }
+      .detail-photos { grid-area: photos; }
+      .detail-location {
+        grid-area: location;
+        position: sticky;
+        top: 108px;
+      }
+      .detail-location #detail-map {
+        aspect-ratio: auto;
+        height: min(72vh, 760px);
+        min-height: 520px;
+      }
+    }
+    .resolve-modal-backdrop {
+      background: rgba(1, 8, 18, .76);
+      backdrop-filter: blur(6px);
+    }
+    /* Detail rendered inside the Search page right-hand panel */
+    .search-inline-detail .detail-layout {
+      display: flex;
+      flex-direction: column;
+    }
+    .search-inline-detail .detail-location {
+      display: none;
+    }
+    .search-inline-detail .detail-info { order: 1; }
+    .search-inline-detail .detail-notes { order: 2; }
+    .search-inline-detail .detail-photos { order: 3; }
+    .search-inline-detail .detail-info,
+    .search-inline-detail .detail-notes,
+    .search-inline-detail .detail-photos {
+      width: 100%;
+    }
+    @media (min-width: 1024px) {
+      .search-workspace {
+        grid-template-columns: minmax(380px, 0.82fr) minmax(0, 1.18fr);
+      }
+    }
     @supports not (aspect-ratio: 1 / 1) {
       #detail-map {
         height: min(calc(100vw - 4rem), 640px);
@@ -566,6 +627,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
       const [noteInput, setNoteInput] = useState('');
       const [noteAuthor, setNoteAuthor] = useState('');
       const [resolvedBy, setResolvedBy] = useState('');
+      const [isResolveModalOpen, setIsResolveModalOpen] = useState(false);
       const [additionalStickerPhotos, setAdditionalStickerPhotos] = useState([]);
       const [additionalVesselPhotos, setAdditionalVesselPhotos] = useState([]);
       const [isUploadingAdditionalPhotos, setIsUploadingAdditionalPhotos] = useState(false);
@@ -953,17 +1015,29 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
         }
       }
 
+      function focusSearchMapOnSticker(sticker) {
+        const latitude = Number(sticker?.latitude);
+        const longitude = Number(sticker?.longitude);
+        if (!searchMapInstanceRef.current || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+        searchMapInstanceRef.current.flyTo([latitude, longitude], 17, { duration: 0.7 });
+      }
+
       async function openStickerDetail(sticker) {
+        // Keep the Search workspace visible and move its map to the selected pin.
+        setSelectedSticker(sticker);
+        focusSearchMapOnSticker(sticker);
         const details = await fetchStickerDetails(sticker.id);
         setSelectedSticker(sticker);
         setSelectedPhotos(details.photos);
         setSelectedNotes(details.notes);
         setResolvedBy('');
+        setIsResolveModalOpen(false);
         setNoteInput('');
         setNoteAuthor('');
         setAdditionalStickerPhotos([]);
         setAdditionalVesselPhotos([]);
-        setScreen('detail');
+        setScreen('search');
+        requestAnimationFrame(() => focusSearchMapOnSticker(sticker));
       }
 
       async function handleSearch() {
@@ -1046,6 +1120,8 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
           
           await markResolved(selectedSticker.id, resolvedBy);
           await handleRefreshDetails(selectedSticker.id, selectedSticker.sticker_no);
+          setIsResolveModalOpen(false);
+          setResolvedBy('');
           setSuccessMessage('Sticker marked as resolved.');
         } catch (err) {
           console.error(err);
@@ -1392,7 +1468,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
                     <tr
                       key={item.id}
                       onClick={() => openStickerDetail(item)}
-                      className="cursor-pointer hover:bg-pink-50"
+                      className={`cursor-pointer hover:bg-pink-50 ${selectedSticker?.id === item.id ? 'bg-pink-50 ring-1 ring-inset ring-pink-200' : ''}`}
                     >
                       <td className="px-3 py-3 font-bold text-gray-900 whitespace-nowrap">{item.sticker_no || '-'}</td>
                       <td className="px-3 py-3 text-gray-900 min-w-[160px]">{item.vessel_name || '-'}</td>
@@ -1493,7 +1569,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
               </div>
             )}
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] items-start">
+            <div className="search-workspace grid gap-4 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] items-start">
               <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4 lg:sticky lg:top-20">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -1507,7 +1583,30 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
                 <div id="search-map" ref={searchMapRef}></div>
               </div>
               <div className="min-w-0">
-                {renderAllStickerList()}
+                {selectedSticker ? (
+                  <div className="search-inline-detail space-y-3">
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Selected sticker</div>
+                        <div className="truncate font-bold text-gray-900">#{selectedSticker.sticker_no || '-'} · {selectedSticker.vessel_name || 'Unknown vessel'}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          resetMessages();
+                          setSelectedSticker(null);
+                          setSelectedPhotos([]);
+                          setSelectedNotes([]);
+                          setIsResolveModalOpen(false);
+                        }}
+                        className="shrink-0 rounded-xl bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-200"
+                      >
+                        ← All stickers
+                      </button>
+                    </div>
+                    {renderDetail()}
+                  </div>
+                ) : renderAllStickerList()}
               </div>
             </div>
           </div>
@@ -1529,16 +1628,31 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
 );
 
         return (
-          <div className="space-y-4">
-            <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
+          <div className="detail-layout space-y-4 lg:space-y-0">
+            <div className="detail-info bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <div className="text-xs uppercase tracking-wide text-gray-500">Pink Sticker</div>
                   <div className="text-2xl font-bold">{selectedSticker.sticker_no}</div>
                 </div>
-                <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${selectedSticker.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-pink-100 text-pink-700'}`}>
-                  {selectedSticker.status === 'resolved' ? <Icons.Check className="w-4 h-4" /> : <Icons.Pin className="w-4 h-4" />}
-                  {selectedSticker.status === 'resolved' ? 'Resolved' : 'Active'}
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  {selectedSticker.status !== 'resolved' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetMessages();
+                        setResolvedBy('');
+                        setIsResolveModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700"
+                    >
+                      <Icons.Check className="w-4 h-4" /> Resolve
+                    </button>
+                  )}
+                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${selectedSticker.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-pink-100 text-pink-700'}`}>
+                    {selectedSticker.status === 'resolved' ? <Icons.Check className="w-4 h-4" /> : <Icons.Pin className="w-4 h-4" />}
+                    {selectedSticker.status === 'resolved' ? 'Resolved' : 'Active'}
+                  </div>
                 </div>
               </div>
 
@@ -1582,7 +1696,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
               </div>
             </div>
 
-            <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
+            <div className="detail-photos bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
               <h3 className="text-lg font-bold">Photos</h3>
               <div>
                 <div className="text-sm font-semibold mb-2">Sticker Photos</div>
@@ -1672,7 +1786,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
               </div>
             </div>
 
-            <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
+            <div className="detail-location bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
               <h3 className="text-lg font-bold">Location</h3>
               {hasValidCoordinates(selectedSticker) ? (
                 <div id="detail-map" ref={mapRef}></div>
@@ -1681,7 +1795,7 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
               )}
             </div>
 
-            <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
+            <div className="detail-notes bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
               <div className="flex items-center gap-2">
                 <Icons.Note className="w-5 h-5 text-gray-700" />
                 <h3 className="text-lg font-bold">Notes</h3>
@@ -1727,31 +1841,75 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
               </button>
             </div>
 
-            <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-3">
-              <h3 className="text-lg font-bold">Resolve Sticker</h3>
-              {selectedSticker.status === 'resolved' ? (
-                <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-2xl px-4 py-3">
-                  This sticker is already resolved.
-                </div>
-              ) : (
-                <>
+            {isResolveModalOpen && selectedSticker.status !== 'resolved' && (
+              <div
+                className="resolve-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="resolve-dialog-title"
+                onMouseDown={(e) => {
+                  if (e.target === e.currentTarget) {
+                    setResolvedBy('');
+                    setIsResolveModalOpen(false);
+                  }
+                }}
+              >
+                <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-lg">
+                  <div className="mb-5 flex items-start justify-between gap-4">
+                    <div>
+                      <h3 id="resolve-dialog-title" className="text-xl font-bold text-gray-900">Resolve Sticker</h3>
+                      <p className="mt-1 text-sm text-gray-500">Who resolved this pink sticker?</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResolvedBy('');
+                        setIsResolveModalOpen(false);
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      aria-label="Close resolve dialog"
+                    >
+                      <Icons.X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <label className="mb-1 block text-sm font-semibold text-gray-900">Resolved by</label>
                   <input
                     type="text"
                     value={resolvedBy}
                     onChange={(e) => setResolvedBy(e.target.value)}
-                    placeholder="Resolved by"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleResolve();
+                      if (e.key === 'Escape') {
+                        setResolvedBy('');
+                        setIsResolveModalOpen(false);
+                      }
+                    }}
+                    autoFocus
+                    placeholder="Enter name"
                     className="w-full h-11 rounded-xl border border-gray-300 px-3 outline-none focus:ring-2 focus:ring-green-500"
                   />
-                  <button
-                    type="button"
-                    onClick={handleResolve}
-                    className="w-full h-11 rounded-2xl bg-green-600 text-white font-semibold hover:bg-green-700"
-                  >
-                    Mark as Resolved
-                  </button>
-                </>
-              )}
-            </div>
+                  <div className="mt-5 grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResolvedBy('');
+                        setIsResolveModalOpen(false);
+                      }}
+                      className="h-11 rounded-2xl border border-gray-200 bg-white text-gray-700 font-semibold hover:bg-gray-50"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResolve}
+                      className="h-11 rounded-2xl bg-green-600 text-white font-semibold hover:bg-green-700"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
       }
@@ -1761,12 +1919,12 @@ button.bg-gray-900,button.bg-black{background:linear-gradient(135deg,#178c88,#0d
         if (screen === 'search') return renderSearch();
         if (screen === 'detail') return renderDetail();
         return renderHome();
-      }, [screen, form, isSaving, isFetchingLocation, searchType, searchStickerNo, searchResults, allStickers, isLoadingAllStickers, isSearching, selectedSticker, selectedPhotos, selectedNotes, noteInput, noteAuthor, resolvedBy, additionalStickerPhotos, additionalVesselPhotos, isUploadingAdditionalPhotos, isEditingLocation, locationEditor]);
+      }, [screen, form, isSaving, isFetchingLocation, searchType, searchStickerNo, searchResults, allStickers, isLoadingAllStickers, isSearching, selectedSticker, selectedPhotos, selectedNotes, noteInput, noteAuthor, resolvedBy, isResolveModalOpen, additionalStickerPhotos, additionalVesselPhotos, isUploadingAdditionalPhotos, isEditingLocation, locationEditor]);
 
       return (
         <div className="min-h-screen bg-gray-50">
           {renderHeader()}
-          <main className={screen === 'search' ? "max-w-7xl mx-auto px-4 py-5 pb-24" : "max-w-3xl mx-auto px-4 py-5 pb-24"}>
+          <main className={(screen === 'search' || screen === 'detail') ? "max-w-7xl mx-auto px-4 py-5 pb-24" : "max-w-3xl mx-auto px-4 py-5 pb-24"}>
             {content}
           </main>
           {renderMessageBar()}
